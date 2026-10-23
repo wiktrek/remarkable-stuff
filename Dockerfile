@@ -19,8 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
  && cp "$(command -v deno)" /deno
 
 FROM python:3.12-slim
+# Pango + fonts for WeasyPrint, which renders Markdown notes to PDF
 RUN apt-get update \
- && apt-get install -y --no-install-recommends pandoc \
+ && apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=rmapi /rmapi /usr/local/bin/rmapi
 COPY --from=livesync /deno /usr/local/bin/deno

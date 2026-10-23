@@ -22,11 +22,16 @@ crashes, and shows its status in the footer of the web UI. Only the
 `reMarkable/` folder of your vault is mirrored. Everything else stays in
 CouchDB.
 
-| You do this…                                                     | …and this happens                                                     |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Drop a PDF/EPUB into `reMarkable/Outbox/` in Obsidian            | It appears on the tablet in `/Obsidian/`                              |
-| Write a Markdown note in `reMarkable/Outbox/`                    | It's converted to EPUB and appears on the tablet                      |
-| Annotate any doc / write a notebook in `/Obsidian` on the tablet | `Name.pdf` (with your ink) + `Name.md` appear in `reMarkable/Inbox/`  |
+`reMarkable/` in the vault and `/Obsidian` on the tablet are one folder, with
+the same subfolders on both sides:
+
+| You do this…                                           | …and this happens                                                      |
+| ------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Put a PDF/EPUB in `reMarkable/` (or a subfolder)        | It appears in the same place under `/Obsidian` on the tablet           |
+| Write a note `reMarkable/X.md`                          | It appears on the tablet as a PDF `X`, one compact page per screenful  |
+| Write on `X` (from a note) on the tablet                | `X.pdf` with your ink appears next to `X.md`; the note isn't touched   |
+| Annotate a PDF that came from the vault                 | That PDF in the vault is replaced by the annotated one                 |
+| Create a notebook / upload a file in `/Obsidian`        | `Name.pdf` appears in the matching vault folder                        |
 
 ## Setup
 
@@ -47,8 +52,7 @@ Use a URI the **NAS can reach**. If CouchDB runs on the same Docker host,
 `http://localhost:5984` won't work from inside the container; use the host's
 LAN IP or put both on one Docker network.
 
-In the vault, create the folder `reMarkable/` (with `Outbox/` and `Inbox/`
-inside). rmbridge creates them as well if they're missing.
+In the vault, create the folder `reMarkable/`.
 
 ### 2. Fill in `.env`
 
@@ -81,6 +85,11 @@ container with the new values).
 
 ## Troubleshooting (the "logs" link in the footer)
 
+Connection problems also show up in `docker compose logs rmbridge`. You'll see
+`LiveSync is not connected to …` with the reason about a minute after startup,
+or as soon as a working connection drops, and `LiveSync connected to …` once
+it's up.
+
 | Log says                                                    | Fix                                                                         |
 | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `CouchDB not ready: HTTP 401`                               | Wrong `LIVESYNC_USERNAME` / `LIVESYNC_PASSWORD`                             |
@@ -94,11 +103,16 @@ container with the new values).
 
 - **Handwriting comes back as PDFs, not editable text.** reMarkable's
   handwriting-to-text conversion isn't available outside its own apps.
-- **Editing a file in `Outbox/` replaces the tablet copy**, and ink on the old
-  copy is lost. The annotated version is still in `Inbox/` from the previous
-  pull.
-- **Deletes aren't synced** between the vault and the tablet, in either
-  direction.
+- **Editing a note re-sends it and replaces the tablet copy**, so ink on the
+  old copy disappears from the tablet. It isn't lost: the tablet is checked
+  first, so the latest ink is already in `X.pdf` next to the note.
+- **Exported PDFs (`X.pdf` from a note, notebooks) are one-way**: editing them
+  in the vault doesn't change the tablet.
+- **Deletes, renames and moves aren't synced.** A document moved to another
+  folder on the tablet comes back as a new file in that folder.
+- Markdown support: headings, lists, tasks, tables, code, quotes/callouts,
+  `[[links]]` (as plain text) and `![[image.png]]` embeds from inside
+  `reMarkable/`. Embedded notes/PDFs show only their name.
 - **Big PDFs:** check *Self-hosted LiveSync → Sync settings → Maximum file size*
   in the plugin.
 - Use the **cloud** backend for the vault sync. The USB web interface can't

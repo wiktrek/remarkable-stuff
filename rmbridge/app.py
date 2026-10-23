@@ -116,8 +116,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if vault is None
             else {
                 "dir": str(settings.vault_dir),
-                "outbox": settings.vault_outbox,
-                "inbox": settings.vault_inbox,
                 "rm_folder": settings.rm_vault_folder,
                 "interval": settings.sync_interval,
                 "last": vault.last_report,

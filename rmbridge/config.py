@@ -70,8 +70,6 @@ class Settings:
     # Folder mirrored with the vault. With LiveSync this is the bridge's copy of
     # <vault>/<LIVESYNC_VAULT_FOLDER>; without it, any folder inside a vault.
     vault_dir: Path | None
-    vault_outbox: str
-    vault_inbox: str
     rm_vault_folder: str
     sync_interval: int
     password: str | None
@@ -92,9 +90,6 @@ class Settings:
             usb_url=_env("RM_USB_URL", "http://10.11.99.1").rstrip("/"),
             data_dir=data_dir,
             vault_dir=vault_dir,
-            # Relative to vault_dir, i.e. <vault>/reMarkable/Outbox by default.
-            vault_outbox=_env("VAULT_OUTBOX", "Outbox"),
-            vault_inbox=_env("VAULT_INBOX", "Inbox"),
             rm_vault_folder=_env("RM_VAULT_FOLDER", "/Obsidian"),
             sync_interval=int(_env("SYNC_INTERVAL", "120")),
             password=_env("APP_PASSWORD") or None,

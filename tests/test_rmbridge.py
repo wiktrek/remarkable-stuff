@@ -32,7 +32,6 @@ def env(tmp_path, monkeypatch):
     settings = Settings(
         nas_root=nas_root, backend="cloud", rmapi_bin=str(shim), usb_url="http://usb",
         data_dir=tmp_path / "state", vault_dir=tmp_path / "vault",
-        vault_outbox="reMarkable/Outbox", vault_inbox="reMarkable/Inbox",
         rm_vault_folder="/Obsidian", sync_interval=0, password=None,
     )
     return settings, rm_root
@@ -87,33 +86,73 @@ def test_password(env):
     assert client.get("/api/nas", auth=("x", "hunter2")).status_code == 200
 
 
-async def test_vault_roundtrip(env):
+def _touch(path: Path, content: bytes) -> None:
+    path.write_bytes(content)
+    os.utime(path, ns=(path.stat().st_mtime_ns + 10**9,) * 2)
+
+
+async def test_vault_mirror(env):
     settings, rm_root = env
     sync = VaultSync(settings, create_app.__globals__["make_backend"](settings, "cloud"))
-    outbox = settings.vault_dir / "reMarkable/Outbox"
-    (outbox / "Papers").mkdir(parents=True)
-    (outbox / "Papers" / "attention.pdf").write_bytes(b"%PDF attention")
+    vault = settings.vault_dir
+    (vault / "Papers").mkdir(parents=True)
+    (vault / "Papers" / "attention.pdf").write_bytes(b"%PDF attention")
+    (vault / "note.md").write_text("two words\n")
 
     r = await sync.run_once()
-    assert r["pushed"] == ["Papers/attention.pdf"] and r["errors"] == []
+    assert sorted(r["pushed"]) == ["Papers/attention.pdf", "note.md"] and r["errors"] == []
     assert (rm_root / "Obsidian/Papers/attention.pdf").exists()
-    assert r["pulled"] == []  # our own upload doesn't bounce back
+    assert (rm_root / "Obsidian/note.pdf").read_bytes().startswith(b"%PDF")  # rendered note
+    assert r["pulled"] == []
 
-    # Unchanged on both sides -> nothing to do.
+    # Unchanged on both sides -> nothing to do; our uploads don't bounce back.
     r = await sync.run_once()
     assert r["pushed"] == r["pulled"] == []
 
-    # Written on the tablet: an existing doc gets annotated, a new notebook appears.
-    doc = rm_root / "Obsidian/Papers/attention.pdf"
-    doc.write_bytes(b"%PDF attention + ink")
-    os.utime(doc, ns=(doc.stat().st_mtime_ns + 10**9,) * 2)
+    # Written on the tablet: both pushed docs get ink, a new notebook appears.
+    _touch(rm_root / "Obsidian/Papers/attention.pdf", b"%PDF attention + ink")
+    _touch(rm_root / "Obsidian/note.pdf", b"%PDF note + ink")
     (rm_root / "Obsidian/Meeting.pdf").write_bytes(b"%PDF notebook")
     r = await sync.run_once()
-    assert sorted(r["pulled"]) == ["Meeting.pdf", "Papers/attention.pdf"]
-    inbox = settings.vault_dir / "reMarkable/Inbox"
-    note = (inbox / "Meeting.md").read_text()
-    assert "![[Meeting.pdf]]" in note and 'remarkable_path: "/Obsidian/Meeting"' in note
-    assert json.loads((settings.data_dir / "vault-state.json").read_text())["pulled"]
+    assert sorted(r["pulled"]) == ["Meeting.pdf", "Papers/attention.pdf", "note.pdf"]
+    assert r["pushed"] == [] and r["errors"] == []
+    assert (vault / "Papers/attention.pdf").read_bytes() == b"%PDF annotated %PDF attention + ink"
+    assert (vault / "note.pdf").read_bytes() == b"%PDF annotated %PDF note + ink"
+    assert (vault / "note.md").read_text() == "two words\n"
+    assert (vault / "Meeting.pdf").exists()
+
+    # Exports never go back to the tablet.
+    r = await sync.run_once()
+    assert r["pushed"] == r["pulled"] == []
+
+    # Editing the note re-sends it to the same document; more ink updates the same export.
+    _touch(vault / "note.md", b"two words, edited\n")
+    r = await sync.run_once()
+    assert r["pushed"] == ["note.md"] and r["pulled"] == []
+    _touch(rm_root / "Obsidian/note.pdf", b"%PDF more ink")
+    r = await sync.run_once()
+    assert r["pulled"] == ["note.pdf"] and r["pushed"] == []
+    assert sorted(p.name for p in rm_root.joinpath("Obsidian").iterdir()) == ["Meeting.pdf", "Papers", "note.pdf"]
+
+    # A vault note named like a tablet notebook doesn't overwrite it.
+    (vault / "Meeting.md").write_text("agenda\n")
+    r = await sync.run_once()
+    assert r["pushed"] == ["Meeting.md"]
+    assert (rm_root / "Obsidian/Meeting (2).pdf").exists()
+    assert (rm_root / "Obsidian/Meeting.pdf").read_bytes() == b"%PDF notebook"
+
+
+def test_short_note_is_one_page(tmp_path):
+    import weasyprint
+
+    from rmbridge.render import note_html
+
+    note = tmp_path / "test.md"
+    note.write_text("---\ntags: [x]\n---\ntest [[Other|remarkable]] ==now==\n\n- [ ] task\n")
+    page = note_html(note, tmp_path)
+    assert "<h1>test</h1>" in page and "test remarkable <mark>now</mark>" in page
+    assert "☐ task" in page and "tags" not in page
+    assert len(weasyprint.HTML(string=page).render().pages) == 1
 
 
 async def test_usb_backend(tmp_path):

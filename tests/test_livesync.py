@@ -111,3 +111,35 @@ async def test_manual_restart_is_immediate(ls_env, tmp_path):
     assert bridge.restarts == 0
     await bridge.stop()
     task.cancel()
+
+
+async def test_connection_problems_are_logged(ls_env, tmp_path, caplog):
+    # Bridge that can't reach CouchDB: complains and never reports healthy.
+    bridge_dir = tmp_path / "bridge"
+    bridge_dir.mkdir()
+    (bridge_dir / "main.ts").write_text("")
+    deno = tmp_path / "deno"
+    deno.write_text(
+        f"#!{sys.executable}\nimport time\n"
+        "print('CouchDB not ready: HTTP 401', flush=True)\n"
+        "print('retrying', flush=True)\ntime.sleep(30)\n"
+    )
+    deno.chmod(deno.stat().st_mode | stat.S_IEXEC)
+    settings = Settings.from_env()
+    settings = replace(settings, livesync=replace(settings.livesync, bridge_dir=str(bridge_dir), deno_bin=str(deno)))
+    bridge = LiveSyncBridge(settings)
+    bridge.health_interval, bridge.health_grace = 0.05, 0.2
+
+    caplog.set_level("INFO", logger="rmbridge.livesync")
+    task = asyncio.create_task(bridge.run())
+    async with asyncio.timeout(3):
+        while not any(r.levelname == "ERROR" for r in caplog.records):
+            await asyncio.sleep(0.05)
+    await bridge.stop()
+    task.cancel()
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert warnings == ["livesync: CouchDB not ready: HTTP 401"]
+    assert len(errors) == 1
+    assert "not connected to https://couch.lan/vault: CouchDB not ready: HTTP 401" in errors[0]
