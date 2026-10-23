@@ -11,11 +11,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
 from . import nas
 from .config import Settings
+from .livesync import LiveSyncBridge
 from .remarkable import UPLOADABLE, Backend, CloudBackend, RemarkableError, UsbBackend, safe_filename
 from .vault import VaultSync
 
@@ -57,14 +58,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     state: dict = {"backend": make_backend(settings, settings.backend), "vault": None}
     if settings.vault_dir:
         state["vault"] = VaultSync(settings, state["backend"])
+    bridge = LiveSyncBridge(settings) if settings.livesync else None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        task = None
+        tasks = []
+        if bridge:
+            tasks.append(asyncio.create_task(bridge.run()))
         if state["vault"] and settings.sync_interval > 0:
-            task = asyncio.create_task(state["vault"].loop())
+            tasks.append(asyncio.create_task(state["vault"].loop()))
         yield
-        if task:
+        if bridge:
+            await bridge.stop()
+        for task in tasks:
             task.cancel()
 
     app = FastAPI(title="rmbridge", lifespan=lifespan)
@@ -116,7 +122,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "interval": settings.sync_interval,
                 "last": vault.last_report,
             },
+            "livesync": bridge.status() if bridge else None,
         }
+
+    @app.get("/api/livesync/logs", response_class=PlainTextResponse)
+    async def livesync_logs():
+        if bridge is None:
+            raise HTTPException(400, "LiveSync is not configured (LIVESYNC_URL in .env)")
+        return "\n".join(bridge.logs)
+
+    @app.post("/api/livesync/restart")
+    async def livesync_restart():
+        if bridge is None:
+            raise HTTPException(400, "LiveSync is not configured (LIVESYNC_URL in .env)")
+        await bridge.restart()
+        return {"ok": True}
 
     @app.post("/api/backend")
     async def set_backend(body: BackendIn):

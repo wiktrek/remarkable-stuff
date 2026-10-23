@@ -19,6 +19,7 @@ import json
 import mimetypes
 import shutil
 import tempfile
+import time
 import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -56,6 +57,7 @@ class CloudBackend:
         self.rmapi_bin = rmapi_bin
         # rmapi keeps a local tree cache; running two at once corrupts it.
         self._lock = asyncio.Lock()
+        self._status: tuple[float, dict] | None = None
 
     async def _run(
         self, *args: str, cwd: Path | None = None, flags: tuple[str, ...] = ()
@@ -79,6 +81,14 @@ class CloudBackend:
         return out.decode(errors="replace")
 
     async def status(self) -> dict:
+        # The UI polls this; don't hit the cloud more than once a minute.
+        if self._status and time.monotonic() - self._status[0] < 60:
+            return self._status[1]
+        result = await self._check()
+        self._status = (time.monotonic(), result)
+        return result
+
+    async def _check(self) -> dict:
         try:
             await self._run("version")
         except RemarkableError as exc:

@@ -15,36 +15,43 @@ synced with Self-hosted LiveSync.
   - **USB cable**: uses the tablet's built-in web interface (`10.11.99.1`). No
     account needed, but the tablet has to be plugged into the machine running
     rmbridge, with *Settings → Storage → USB web interface* on.
-- **Obsidian bridge**: a vault folder that syncs both ways with a folder on
-  the tablet. See [docs/obsidian-livesync.md](docs/obsidian-livesync.md).
+- **Obsidian sync** (Self-hosted LiveSync): put your CouchDB details in
+  `.env` and the vault's `reMarkable/` folder syncs both ways with `/Obsidian`
+  on the tablet. rmbridge runs livesync-bridge for you, so there's nothing
+  else to install. See [docs/obsidian-livesync.md](docs/obsidian-livesync.md).
 
 ## Run with Docker (on the NAS)
 
 ```bash
-cp .env.example .env          # set NAS_SHARE to your PDF folder, APP_PASSWORD
-mkdir -p data/rmbridge data/vault && sudo chown -R 1993:1993 data
+cp .env.example .env          # then edit: NAS_SHARE, APP_PASSWORD, LIVESYNC_*
+mkdir -p data
 docker compose build
 
 # one-time cloud login: code from https://my.remarkable.com/device/browser/connect
 docker compose run --rm -it rmbridge rmapi     # paste code, then `exit`
 
-docker compose up -d rmbridge                  # add livesync-bridge later, see docs
+docker compose up -d
 ```
 
-Then open `http://<nas>:8484`.
-
-If you don't want the Obsidian part, leave `VAULT_DIR` empty in `.env` and only
-start the `rmbridge` service.
+Then open `http://<nas>:8484`. If you edit `.env`, apply it with
+`docker compose up -d`. If you don't want the Obsidian sync, leave
+`LIVESYNC_URL` empty.
 
 ## Run locally (no Docker)
 
 ```bash
 git clone https://github.com/ddvk/rmapi /tmp/rmapi && (cd /tmp/rmapi && go build -o ~/.local/bin/rmapi .)
-rmapi                                                  # one-time login, then `exit`
-NAS_ROOT=/mnt/nas/books uv run rmbridge                # → http://localhost:8484
+rmapi                     # one-time login, then `exit`
+
+# only for the Obsidian sync (needs deno):
+git clone https://github.com/vrtmrz/livesync-bridge ~/.local/share/livesync-bridge
+(cd ~/.local/share/livesync-bridge && deno install --frozen)
+echo "LIVESYNC_BRIDGE_DIR=$HOME/.local/share/livesync-bridge" >> .env
+
+uv run rmbridge           # reads ./.env → http://localhost:8484
 ```
 
-To use it over USB on a laptop: `RM_BACKEND=usb uv run rmbridge`.
+To use it over USB on a laptop, set `RM_BACKEND=usb` in `.env`.
 
 ## Configuration
 
@@ -52,22 +59,26 @@ All settings are environment variables. See [`.env.example`](.env.example).
 
 | Variable          | Default              | Meaning                                                  |
 | ----------------- | -------------------- | -------------------------------------------------------- |
-| `NAS_ROOT`        | `./data/nas`         | Folder shown in the NAS pane (`/nas` in Docker)          |
+| `NAS_SHARE`       | `./data/nas`         | Host folder shown in the NAS pane                        |
 | `RM_BACKEND`      | `cloud`              | `cloud` or `usb`                                         |
 | `RM_USB_URL`      | `http://10.11.99.1`  | USB web interface address                                |
-| `RMAPI_BIN`       | `rmapi`              | Path to rmapi                                            |
-| `DATA_DIR`        | `./data/state`       | Sync bookkeeping (keep it out of the vault)              |
+| `RM_VAULT_FOLDER` | `/Obsidian`          | Folder on the tablet that syncs with the vault           |
+| `LIVESYNC_URL`    | –                    | CouchDB URI from the LiveSync plugin; enables Obsidian sync |
+| `LIVESYNC_DATABASE` / `_USERNAME` / `_PASSWORD` | – | Same as in the plugin                       |
+| `LIVESYNC_PASSPHRASE` | –                | E2EE passphrase (empty if E2EE is off)                   |
+| `LIVESYNC_OBFUSCATE_PASSPHRASE` | –      | Path obfuscation passphrase (empty if off)               |
+| `LIVESYNC_ID_KEY` | –                    | `sls-id-v1:…` recovery code (newer E2EE vaults)          |
+| `LIVESYNC_VAULT_FOLDER` | `reMarkable`   | The only vault folder that is mirrored                   |
+| `VAULT_OUTBOX` / `VAULT_INBOX` | `Outbox` / `Inbox` | Subfolders of it: to the tablet / from the tablet |
+| `SYNC_INTERVAL`   | `120`                | Seconds between tablet syncs (`0` = button only)         |
 | `APP_PASSWORD`    | –                    | Enables HTTP basic auth (any username)                   |
-| `VAULT_DIR`       | –                    | Enables the Obsidian bridge                              |
-| `VAULT_OUTBOX`    | `reMarkable/Outbox`  | Vault → tablet folder (relative to `VAULT_DIR`)          |
-| `VAULT_INBOX`     | `reMarkable/Inbox`   | Tablet → vault folder                                    |
-| `RM_VAULT_FOLDER` | `/Obsidian`          | Folder on the tablet that the vault syncs with           |
-| `SYNC_INTERVAL`   | `300`                | Seconds between vault syncs (`0` = manual only)          |
-| `HOST` / `PORT`   | `0.0.0.0` / `8484`   | Listen address                                           |
+| `PORT`            | `8484`               | Web UI port                                              |
+| `DATA_DIR`        | `./data/state`       | State, rmapi login, the bridge's vault mirror            |
+| `VAULT_DIR`       | –                    | Without LiveSync: sync a local folder (e.g. `<vault>/reMarkable`) instead |
 
 ## Development
 
 ```bash
 uv sync
-uv run pytest     # uses a fake rmapi and a mocked USB interface, no tablet needed
+uv run pytest     # fake rmapi, mocked USB interface and a fake livesync-bridge
 ```

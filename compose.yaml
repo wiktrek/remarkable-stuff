@@ -2,25 +2,11 @@ services:
   rmbridge:
     build: .
     restart: unless-stopped
-    user: "${PUID:-1993}:${PGID:-1993}"
+    # Any uid works; it needs to write ./data and your NAS share.
+    user: "${PUID:-1000}:${PGID:-1000}"
     ports:
-      - "8484:8484"
+      - "${PORT:-8484}:${PORT:-8484}"
     env_file: .env
     volumes:
       - ${NAS_SHARE:-./data/nas}:/nas
-      - ./data/rmbridge:/data
-      - ./data/vault:/vault
-
-  # Mirrors <vault>/reMarkable/ from your LiveSync CouchDB into ./data/vault
-  # and back. Config lives in ./livesync-bridge/config.json.
-  livesync-bridge:
-    build: https://github.com/vrtmrz/livesync-bridge.git
-    restart: unless-stopped
-    user: "${PUID:-1993}:${PGID:-1993}"
-    volumes:
-      - ./livesync-bridge:/app/dat
-      - ./data/vault:/app/data/vault
-      - bridge_local_storage:/deno-dir/location_data
-
-volumes:
-  bridge_local_storage:
+      - ./data:/data
