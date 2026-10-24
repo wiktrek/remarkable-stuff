@@ -85,6 +85,8 @@
   <span id="log">Ready.</span>
   <span id="livesync" hidden><span class="dot"></span><span id="livesync-text"></span>
     · <a href="/api/livesync/logs" target="_blank">logs</a> · <a href="#" id="livesync-restart">restart</a></span>
+  <span id="nas-sync-info"></span>
+  <button id="nas-sync" hidden>Sync NAS folders now</button>
   <span id="vault-info"></span>
   <button id="vault-sync" hidden>Sync Obsidian vault now</button>
 </footer>
@@ -223,6 +225,13 @@ $("vault-sync").onclick = () => busy($("vault-sync"), "Syncing…", async () => 
   refreshStatus();
 });
 
+$("nas-sync").onclick = () => busy($("nas-sync"), "Syncing…", async () => {
+  const r = await post("/api/nas-sync", {});
+  const msg = `NAS sync: sent ${r.pushed.length}` + (r.errors.length ? ` · ${r.errors.join("; ")}` : "");
+  log(msg, r.errors.length ? "err" : "ok");
+  refreshStatus(); loadRm();
+});
+
 async function refreshStatus() {
   const s = await api("/api/status");
   $("backend").value = s.backend;
@@ -233,6 +242,12 @@ async function refreshStatus() {
     $("vault-sync").hidden = false;
     const last = s.vault.last?.finished ? new Date(s.vault.last.finished * 1000).toLocaleTimeString() : "never";
     $("vault-info").textContent = `Vault ↔ ${s.vault.rm_folder} · last sync ${last}`;
+  }
+  if (s.nas_sync) {
+    $("nas-sync").hidden = false;
+    const last = s.nas_sync.last?.finished ? new Date(s.nas_sync.last.finished * 1000).toLocaleTimeString() : "never";
+    const folders = s.nas_sync.folders.map((f) => `${f.nas} → ${f.rm}`).join(", ");
+    $("nas-sync-info").textContent = `${folders} · last sync ${last}`;
   }
   if (s.livesync) {
     const ls = s.livesync;

@@ -10,8 +10,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rmbridge.app import create_app
-from rmbridge.config import Settings
+from rmbridge.config import Settings, _nas_sync
 from rmbridge.remarkable import UsbBackend
+from rmbridge.nas_sync import NasSync
 from rmbridge.vault import VaultSync
 
 HERE = Path(__file__).parent
@@ -140,6 +141,39 @@ async def test_vault_mirror(env):
     assert r["pushed"] == ["Meeting.md"]
     assert (rm_root / "Obsidian/Meeting (2).pdf").exists()
     assert (rm_root / "Obsidian/Meeting.pdf").read_bytes() == b"%PDF notebook"
+
+
+def test_nas_sync_setting():
+    assert _nas_sync("Books, Papers/ML:/Papers/ ,") == (("Books", "/Books"), ("Papers/ML", "/Papers"))
+    assert _nas_sync("") == ()
+
+
+async def test_nas_sync(env):
+    settings, rm_root = env
+    settings = replace(settings, nas_sync=(("Books", "/Library"),))
+    sync = NasSync(settings, create_app.__globals__["make_backend"](settings, "cloud"))
+    books = settings.nas_root / "Books"
+    (books / "SciFi").mkdir()
+    (books / "SciFi" / "dune.epub").write_bytes(b"EPUB dune")
+    (books / "cover.jpg").write_bytes(b"jpg")
+    (rm_root / "Library").mkdir()
+    (rm_root / "Library" / "paper.pdf").write_bytes(b"%PDF already there")
+
+    r = await sync.run_once()
+    assert r["pushed"] == ["Books/SciFi/dune.epub"] and r["errors"] == []
+    assert (rm_root / "Library/SciFi/dune.epub").exists()
+    assert (rm_root / "Library/paper.pdf").read_bytes() == b"%PDF already there"
+
+    # New books go over; deleted-on-tablet and changed-on-NAS books are left alone.
+    (rm_root / "Library/SciFi/dune.epub").unlink()
+    _touch(books / "paper.pdf", b"%PDF paper v2")
+    (books / "new.pdf").write_bytes(b"%PDF new")
+    r = await sync.run_once()
+    assert r["pushed"] == ["Books/new.pdf"] and r["errors"] == []
+    assert not (rm_root / "Library/SciFi/dune.epub").exists()
+
+    r = await sync.run_once()
+    assert r["pushed"] == [] and r["errors"] == []
 
 
 def test_short_note_is_one_page(tmp_path):

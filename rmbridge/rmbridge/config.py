@@ -16,6 +16,19 @@ def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
 
+def _nas_sync(value: str) -> tuple[tuple[str, str], ...]:
+    """"Books, Papers/ML:/Papers" -> (("Books", "/Books"), ("Papers/ML", "/Papers"))."""
+    pairs = []
+    for item in value.split(","):
+        nas_folder, _, rm_folder = item.partition(":")
+        nas_folder = nas_folder.strip().strip("/")
+        if not nas_folder:
+            continue
+        rm_folder = rm_folder.strip().strip("/") or nas_folder.rsplit("/", 1)[-1]
+        pairs.append((nas_folder, "/" + rm_folder))
+    return tuple(pairs)
+
+
 @dataclass(frozen=True)
 class LiveSyncSettings:
     """Connection to the Self-hosted LiveSync CouchDB (same values as the plugin)."""
@@ -74,6 +87,8 @@ class Settings:
     sync_interval: int
     password: str | None
     livesync: LiveSyncSettings | None = None
+    # NAS folders (relative to nas_root) copied one-way to tablet folders.
+    nas_sync: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -94,4 +109,5 @@ class Settings:
             sync_interval=int(_env("SYNC_INTERVAL", "120")),
             password=_env("APP_PASSWORD") or None,
             livesync=livesync,
+            nas_sync=_nas_sync(_env("NAS_SYNC")),
         )

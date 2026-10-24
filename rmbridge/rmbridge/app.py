@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from . import nas
 from .config import Settings
 from .livesync import LiveSyncBridge
+from .nas_sync import NasSync
 from .remarkable import UPLOADABLE, Backend, CloudBackend, RemarkableError, UsbBackend, safe_filename
 from .vault import VaultSync
 
@@ -55,9 +56,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     settings.nas_root.mkdir(parents=True, exist_ok=True)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    state: dict = {"backend": make_backend(settings, settings.backend), "vault": None}
+    state: dict = {"backend": make_backend(settings, settings.backend), "vault": None, "nas_sync": None}
     if settings.vault_dir:
         state["vault"] = VaultSync(settings, state["backend"])
+    if settings.nas_sync:
+        state["nas_sync"] = NasSync(settings, state["backend"])
     bridge = LiveSyncBridge(settings) if settings.livesync else None
 
     @asynccontextmanager
@@ -67,6 +70,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tasks.append(asyncio.create_task(bridge.run()))
         if state["vault"] and settings.sync_interval > 0:
             tasks.append(asyncio.create_task(state["vault"].loop()))
+        if state["nas_sync"] and settings.sync_interval > 0:
+            tasks.append(asyncio.create_task(state["nas_sync"].loop()))
         yield
         if bridge:
             await bridge.stop()
@@ -108,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/status")
     async def status():
         vault: VaultSync | None = state["vault"]
+        nas_sync: NasSync | None = state["nas_sync"]
         return {
             "backend": backend().name,
             "remarkable": await backend().status(),
@@ -119,6 +125,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "rm_folder": settings.rm_vault_folder,
                 "interval": settings.sync_interval,
                 "last": vault.last_report,
+            },
+            "nas_sync": None
+            if nas_sync is None
+            else {
+                "folders": [{"nas": n, "rm": r} for n, r in settings.nas_sync],
+                "last": nas_sync.last_report,
             },
             "livesync": bridge.status() if bridge else None,
         }
@@ -139,8 +151,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/backend")
     async def set_backend(body: BackendIn):
         state["backend"] = make_backend(settings, body.name)
-        if state["vault"]:
-            state["vault"].backend = state["backend"]
+        for sync in (state["vault"], state["nas_sync"]):
+            if sync:
+                sync.backend = state["backend"]
         return {"backend": body.name}
 
     @app.get("/api/nas")
@@ -207,5 +220,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if state["vault"] is None:
             raise HTTPException(400, "VAULT_DIR is not configured")
         return await state["vault"].run_once()
+
+    @app.post("/api/nas-sync")
+    async def nas_sync_now():
+        if state["nas_sync"] is None:
+            raise HTTPException(400, "NAS_SYNC is not configured")
+        return await state["nas_sync"].run_once()
 
     return app

@@ -8,6 +8,8 @@ A small self-hosted web app that moves documents between your **NAS**, your
 
 - 📂 **NAS ⇄ reMarkable**: two panes, tick files, press **Send to reMarkable →**
   or **← Save to NAS**. Your handwriting comes back as PDFs.
+- 📚 **Auto-send NAS folders**: e.g. every new book in your NAS `Books/`
+  folder lands in `/Books` on the tablet (`NAS_SYNC`, see [below](#auto-send-nas-folders)).
 - 🖱️ **Drag & drop** PDFs/EPUBs from your desktop onto the tablet.
 - 📝 **Obsidian sync**: the vault folder `reMarkable/` and the tablet folder
   `/Obsidian` are kept the same, both ways. Notes show up on the tablet as PDFs,
@@ -92,6 +94,23 @@ The footer of the web page turns green when LiveSync is connected.
 > If `CouchDB` runs on the same machine, don't use `localhost` in `LIVESYNC_URL`.
 > Use the machine's LAN IP, because rmbridge runs inside a container.
 
+## Auto-send NAS folders
+
+Set `NAS_SYNC` in `.env` to folders inside `NAS_SHARE` that should end up on
+the tablet, then `docker compose up -d`:
+
+```bash
+NAS_SYNC=Books                        # NAS_SHARE/Books     -> /Books
+NAS_SYNC=Books:/Library, Papers/ML    # NAS_SHARE/Books     -> /Library
+                                      # NAS_SHARE/Papers/ML -> /ML
+```
+
+Every `SYNC_INTERVAL` seconds (or with **Sync NAS folders now** in the footer)
+new PDFs/EPUBs are uploaded, subfolders included. It only goes one way and each
+file is sent once: your annotations are never overwritten, a book you delete on
+the tablet stays deleted, and books already on the tablet under the same name
+aren't sent twice.
+
 ## Troubleshooting
 
 | Problem                                   | Fix                                                                 |
@@ -141,6 +160,7 @@ Everything is set in `.env`, see [`.env.example`](.env.example).
 | Variable                        | Default             | Meaning                                                  |
 | ------------------------------- | ------------------- | -------------------------------------------------------- |
 | `NAS_SHARE`                     | `./data/nas`        | Folder shown in the NAS pane                             |
+| `NAS_SYNC`                      | –                   | NAS folders auto-sent to the tablet, e.g. `Books:/Books`  |
 | `RM_BACKEND`                    | `cloud`             | `cloud` or `usb`                                         |
 | `RM_USB_URL`                    | `http://10.11.99.1` | USB web interface address                                |
 | `RM_VAULT_FOLDER`               | `/Obsidian`         | Tablet folder mirrored with the vault                    |
@@ -150,7 +170,7 @@ Everything is set in `.env`, see [`.env.example`](.env.example).
 | `LIVESYNC_OBFUSCATE_PASSPHRASE` | –                   | Path obfuscation passphrase (empty if off)               |
 | `LIVESYNC_ID_KEY`               | –                   | `sls-id-v1:…` recovery code (newer E2EE vaults)          |
 | `LIVESYNC_VAULT_FOLDER`         | `reMarkable`        | Vault folder mirrored with the tablet                    |
-| `SYNC_INTERVAL`                 | `120`               | Seconds between tablet syncs (`0` = button only)         |
+| `SYNC_INTERVAL`                 | `120`               | Seconds between tablet/NAS syncs (`0` = button only)     |
 | `APP_PASSWORD`                  | –                   | Password for the web page (any username)                 |
 | `PORT`                          | `8484`              | Web page port                                            |
 | `PUID` / `PGID`                 | `1000`              | User the container runs as                               |
