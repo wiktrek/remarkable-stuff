@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from rmbridge.app import create_app
 from rmbridge.config import Settings, _nas_sync
-from rmbridge.remarkable import UsbBackend
+from rmbridge.remarkable import RemarkableError, UsbBackend
 from rmbridge.nas_sync import NasSync
 from rmbridge.vault import VaultSync
 
@@ -141,6 +141,28 @@ async def test_vault_mirror(env):
     assert r["pushed"] == ["Meeting.md"]
     assert (rm_root / "Obsidian/Meeting (2).pdf").exists()
     assert (rm_root / "Obsidian/Meeting.pdf").read_bytes() == b"%PDF notebook"
+
+
+async def test_vault_pull_survives_unlistable_folder(env):
+    settings, rm_root = env
+    backend = create_app.__globals__["make_backend"](settings, "cloud")
+    (rm_root / "Obsidian/Gone").mkdir(parents=True)
+    (rm_root / "Obsidian/Notes [old]").mkdir()
+    (rm_root / "Obsidian/Notes [old]/a.pdf").write_bytes(b"%PDF a")
+    settings.vault_dir.mkdir()
+    (settings.vault_dir / "note.md").write_text("hi\n")
+
+    real_list = backend.list
+
+    async def list_(ref="/"):
+        if ref == "/Obsidian/Gone":  # deleted on the tablet mid-sync
+            raise RemarkableError("Error:  no matches for 'Gone'")
+        return await real_list(ref)
+
+    backend.list = list_
+    r = await VaultSync(settings, backend).run_once()
+    assert r["errors"] == ["pull /Obsidian/Gone: Error:  no matches for 'Gone'"]
+    assert r["pulled"] == ["Notes [old]/a.pdf"] and r["pushed"] == ["note.md"]
 
 
 def test_nas_sync_setting():

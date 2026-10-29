@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import re
 import shutil
 import tempfile
 import time
@@ -102,7 +103,7 @@ class CloudBackend:
     async def list(self, ref: str = "/") -> list[Entry]:
         ref = ref or "/"
         # -json is a global rmapi flag, so it goes before the command.
-        text = await self._run("ls", ref, flags=("-json",))
+        text = await self._run("ls", _glob_escape(ref), flags=("-json",))
         start = text.find("[")
         nodes = json.loads(text[start:]) if start != -1 else []  # empty folder: "null"
         entries = []
@@ -261,6 +262,12 @@ class UsbBackend:
 
 
 Backend = CloudBackend | UsbBackend
+
+
+def _glob_escape(path: str) -> str:
+    # `rmapi ls` matches the last path segment as a glob (case-insensitively).
+    head, sep, last = path.rpartition("/")
+    return head + sep + re.sub(r"([*?\[\\])", r"\\\1", last)
 
 
 def _join(folder: str, name: str) -> str:

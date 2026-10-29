@@ -1,0 +1,11 @@
+{
+  "name": "Chromium",
+  "application": "rm-browser",
+  "qtfb": true,
+  "supportsVirtualKeyboard": true,
+  "environment": {
+    "BROWSER_HOME": "https://duckduckgo.com/",
+    "BROWSER_SEARCH": "https://duckduckgo.com/?q=%s",
+    "BROWSER_ZOOM": "2"
+  }
+}

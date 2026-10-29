@@ -95,7 +95,15 @@ class VaultSync:
     async def _pull_folder(
         self, folder_ref: str, rm_path: str, rel_dir: PurePosixPath, state: dict, report: dict
     ) -> None:
-        for entry in await self.backend.list(folder_ref):
+        try:
+            entries = await self.backend.list(folder_ref)
+        except RemarkableError as exc:
+            if not rel_dir.parts:
+                raise
+            # e.g. renamed or deleted on the tablet since its parent was listed
+            report["errors"].append(f"pull {rm_path}: {exc}")
+            return
+        for entry in entries:
             doc_path = f"{rm_path}/{entry.name}"
             if entry.kind == "folder":
                 await self._pull_folder(entry.ref, doc_path, rel_dir / safe_filename(entry.name), state, report)

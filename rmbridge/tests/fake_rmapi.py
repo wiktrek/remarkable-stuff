@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import sys
 import zipfile
@@ -21,7 +22,7 @@ def node(path: str) -> Path:
 if cmd == "version":
     print("fake")
 elif cmd == "ls":
-    target = node(rest[0] if rest else "/")
+    target = node(re.sub(r"\\(.)", r"\1", rest[0]) if rest else "/")  # real ls globs
     nodes = [
         {"id": p.name, "name": p.stem if p.is_file() else p.name,
          "type": "CollectionType" if p.is_dir() else "DocumentType",

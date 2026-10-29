@@ -1,0 +1,8 @@
+{
+    "name": "Tic Tac Toe",
+    "id": "tictactoe",
+    "entry": "/ui/main.qml",
+    "loadsBackend": false,
+    "supportsScaling": true,
+    "canHaveMultipleFrontends": false
+}
